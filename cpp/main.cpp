@@ -9,7 +9,6 @@
 #include <stdexcept>
 #include <cmath>
 #include <memory>
-#include <cstring>
 #include <algorithm>
 
 class Logger : public nvinfer1::ILogger {
@@ -198,6 +197,7 @@ static cv::Mat resizeAxis(
     return dst;
 }
 
+
 static cv::Mat pillowStyleResize(
     const cv::Mat& src,
     int width,
@@ -253,11 +253,7 @@ std::vector<float> preprocess(const std::string& image_path) {
 
     cv::Mat resized;
 
-    resized = pillowStyleResize(
-        rgb,
-        new_width,
-        new_height
-    );
+    resized = pillowStyleResize(rgb, new_width, new_height);
 
     // Center crop to 224x224.
     const int x = (new_width - IMAGE_SIZE) / 2;

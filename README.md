@@ -1,158 +1,85 @@
-# CLIP Vision Encoder Optimization and C++ TensorRT Deployment
+# CLIP INT8/FP16 TensorRT + C++ road-scene classifier
 
-A GPU-accelerated road-scene time-of-day classifier built using
-OpenAI CLIP ViT-B/16, NVIDIA ModelOpt, ONNX, TensorRT 11.4,
-CUDA, and C++17.
+A reproducible **workflow** for selective INT8 post-training quantization of CLIP ViT-B/16, FP16 TensorRT comparison, and standalone C++ road-scene classification (daytime/night/dawn-dusk). The model is pretrained and uses three fixed zero-shot CLIP text prompts; no task-specific training is performed.
 
-## Task
+## Previously validated results (Tesla T4, original project run)
 
-Classify road images as:
+| Metric | FP32 PyTorch | FP16 TensorRT | Selective INT8/FP16 TensorRT |
+| --- | ---: | ---: | ---: |
+| Balanced 300-image accuracy | 81.00% | 80.67% | 81.33% |
+| Engine size | — | 166.14 MiB | 114.42 MiB |
+| Batch-1 mean GPU execution | — | 4.410 ms | 4.229 ms |
+| Batch-32 mean GPU execution | — | 91.727 ms | 84.006 ms |
+| Batch-32 throughput | — | 348.9 img/s | 380.9 img/s |
 
-- daytime
-- night
-- dawn/dusk
+Independent **C++** JPEG-to-prediction implementation: 80.67% accuracy, 33.77 ms mean end-to-end latency (24.80 ms CPU preprocessing, 8.71 ms GPU timing), 32.56 ms median, 39.96 ms p95, measured on 300 locally stored images with a persistent engine. Do **not** substitute the 4.23 ms back-to-back CUDA benchmark for C++ application GPU latency. Original validated figures are reference observations, *not guaranteed reproduction targets*.
 
-Classification uses cosine similarity between the CLIP vision
-encoder's 512-dimensional output and three precomputed CLIP text
-embeddings. This is fixed-prompt zero-shot classification, not
-task-specific fine-tuning.
+Dawn/dusk recall was approximately 49–51%; predictions and cosine scores are not calibrated probabilities. The original 300-image development set was balanced and small.
 
-## Architecture
+## Quick start: Google Colab with T4 GPU
 
-```mermaid
-flowchart TD
-    A[JPEG road image] --> B[OpenCV JPEG decoding]
-    B --> C[Antialiased bicubic resize]
-    C --> D[224 x 224 center crop and CLIP normalization]
-    D --> E[Mixed INT8/FP16 TensorRT vision encoder]
-    E --> F[Normalize 512D image embedding]
-    G[Precomputed CLIP text embeddings] --> H[Cosine similarity]
-    F --> H
-    H --> I[Daytime / Night / Dawn-dusk]
-```
+1. Create a Google Colab notebook, select **Runtime → Change runtime type → T4 GPU**. NVIDIA GPU, Linux, and an accessible dataset repository are required.
+2. Clone this repository (replace the URL with your actual repository URL):
 
-## Optimization
+   ```bash
+   !git clone https://github.com/YOUR_USERNAME/clip-tensorrt-cpp-inference.git /content/clip-tensorrt-cpp-inference
+   ```
+3. Open `notebooks/run_pipeline.ipynb` in Colab and run all cells. Google Drive consent is required. The notebook installs requirements once and invokes the stage runner.
+4. Re-running the workflow skips hash-verified artifacts. An interrupted stage is rebuilt.
 
-- Base model: `openai/clip-vit-base-patch16`.
-- Selective INT8 quantization: attention projections, MLP fc1,
-  and selected embedding operations.
-- FP16: remaining compatible floating-point computation,
-  including MLP fc2.
-- FP32 model input and output interface.
-- Calibration: 300 balanced training images, 100 per class.
-- Evaluation: 300 separate balanced validation images.
-- All 57,364,224 quantized weight values were preserved during
-  FP16 conversion.
-- TensorRT profile: batch sizes 1 through 32, optimal batch 8.
-
-## Measured results
-
-Hardware: NVIDIA Tesla T4. Engine-only GPU benchmarks exclude
-JPEG decoding, CPU preprocessing, and model initialization.
-
-| Metric | FP16 TensorRT | Mixed INT8/FP16 TensorRT |
-|---|---:|---:|
-| Engine size | 166.14 MiB | 114.42 MiB |
-| Batch-1 mean GPU latency | 4.410 ms | 4.229 ms |
-| Batch-32 mean GPU latency | 91.727 ms | 84.006 ms |
-| Batch-32 throughput | 348.9 images/s | 380.9 images/s |
-| Python evaluation accuracy | 80.67% | 81.33% |
-
-The original FP32 PyTorch baseline achieved 81.00% accuracy
-on the same 300-image validation subset.
-
-### Standalone C++ application
-
-- Accuracy: 80.67% (242/300).
-- Macro F1: 0.7951.
-- Agreement with original C++ implementation: 100%.
-- Mean end-to-end latency: 33.77 ms/image.
-- Median end-to-end latency: 32.56 ms/image.
-- P95 end-to-end latency: 39.96 ms/image.
-
-C++ application timing used images copied to local Colab storage,
-one persistent engine instance, and sequential image processing.
-Engine startup/deserialization was excluded.
-
-The C++ preprocessing uses custom antialiased bicubic resizing
-to closely approximate the CLIP image processor.
-
-## Build requirements
-
-- Linux, C++17 compiler, CUDA toolkit
-- NVIDIA GPU supporting the serialized engine
-- TensorRT 11.4 headers and runtime libraries
-- OpenCV 4 C++ development libraries and pkg-config
-
-TensorRT serialized engines are hardware- and
-version-dependent. The engine was built for an NVIDIA
-Tesla T4 under TensorRT 11.4; rebuilding from ONNX may be
-necessary for other environments.
-
-To build:
+Alternatively, after installing `requirements.txt` and mounting Drive:
 
 ```bash
-cd release
-export TRT_INCLUDE_DIR=/path/to/TensorRT/include
-export TRT_LIB_DIR=/path/to/TensorRT/lib
-export CUDA_ROOT=/usr/local/cuda
-./build.sh
+cd /content/clip-tensorrt-cpp-inference
+python -m src.pipeline --stage all --root /content/drive/MyDrive/CLIP_Quantization_Project
 ```
 
-Set the TensorRT locations to match the installed runtime.
+To run a single step, pass `--stage prepare|baseline|quantize|convert|build|evaluate`; prerequisites from earlier stages must already exist. The first run downloads 600 labeled JPEGs (300 calibration, 300 validation), the pretrained CLIP checkpoint, and creates the checkpoints/ONNX graphs/engines locally before copying their verified bytes to Drive. Subsequent runs use valid stage outputs.
 
-## Run
+The project intentionally keeps Hugging Face caches in `/content/hf`, **not Google Drive**, avoiding reuse of corrupt cached PyTorch `.bin` downloads; `use_safetensors=True` is explicitly requested. Data revision is pinned. No images or pretrained weights are redistributed in this repository; follow BDD100K and upstream model terms.
+
+### Artifacts and reproducibility
+
+`src/pipeline.py` is the single source of truth. It uses deterministic sampling (seed 42 for calibration, 43 for evaluation), emits saved manifests, performs 300-image FP32 evaluation, calibrates 123 enabled quantizers with NVIDIA ModelOpt (max calibration), exports 123 ONNX Q/DQ pairs, restores 246 FP32 quantizer scales, confirms **zero changes over 57,364,224 quantized weight integers**, builds FP16 and mixed TensorRT engines (batch min=1, opt=8, max=32), and evaluates both on exactly the same validation manifest. Output checksums live in `<root>/checksums/`. `src/common.py` handles verified Drive publication.
+
+ModelOpt `mto.restore` reloads saved calibration when present; no recalibration is needed for valid checkpoints. Engines are deserialized before reuse. A changed Torch/Transformers/driver/TRT stack may require rebuilding engines from ONNX; remove stale outputs from the persistent folder if changing the configuration or dependencies.
+
+**Software caveat:** Core TensorRT 11.4 / ModelOpt 0.47 / ONNX 1.21 versions are pinned, but the environment includes Colab-provided CUDA/PyTorch and dependency compatibility ranges. For forensic exact-environment replay, capture and freeze a successful `pip freeze` and driver/clock info. Hardware availability, remote dataset availability, CUDA tactics, and GPU timing are not controllable by this repository. We have syntax/unit-checked this packaging, **not rerun an end-to-end fresh Tesla T4 pipeline** as part of repository generation. No promise of failure-free execution or numerically identical latency across arbitrary GPUs.
+
+### Build and run C++ classifier
+
+C++ requires TensorRT **11.4 C++ headers**, CUDA development headers/toolkit, OpenCV 4 development package, and a GPU-compatible serialized engine. Python TensorRT wheels may include runtime libraries but not headers. Set `TRT_INCLUDE_DIR` to a matching headers path and optionally `TRT_LIB_DIR` (else `cpp/build.sh` detects the pip-installed TensorRT runtime library):
 
 ```bash
-./clip_classifier \
+sudo apt-get update && sudo apt-get install -y libopencv-dev pkg-config g++
+export TRT_INCLUDE_DIR=/path/to/tensorrt-11.4/include
+# optional: export TRT_LIB_DIR=/path/to/installed/tensorrt_libs
+bash cpp/build.sh
+cpp/clip_classifier \
   /path/to/clip_attention_fc1_int8_fp16_repaired.engine \
-  text_embeddings_fp32.bin \
-  /path/to/example.jpg
+  /path/to/CLIP_Quantization_Project/cpp_deployment/text_embeddings_fp32.bin \
+  /path/to/road_image.jpg
 ```
 
-You can provide multiple image paths in one invocation.
-The application loads the engine once and emits CSV with
-predictions, cosine similarity scores, and latency measurements.
+The executable emits CSV columns: `index,prediction,s_daytime,s_night,s_dawn_dusk,preprocess_ms,gpu_ms,end_to_end_ms`. Engine load is excluded from per-image timing. The OpenCV decoder and custom antialiased bicubic resize closely approximate CLIP/Pillow; they are not guaranteed bitwise-identical. Evaluate C++ predictions independently rather than assuming PyTorch parity.
 
-Scores are cosine similarities, **not calibrated probabilities**.
+### What is deliberately NOT in Git
 
-## Limitations
+Large `.engine`, `.onnx`, `.pth`, `*.bin`, `.jpg` files, extracted NVIDIA vendor headers, and compiled `cpp/clip_classifier`. These are generated, hardware-dependent, licensed, or larger than normal GitHub file limits. `text_embeddings_fp32.bin` is generated by the pipeline from the three fixed prompts (6 KiB) and saved in the persistent `cpp_deployment/` folder. The dataset manifests are generated in the persistent workspace; commit copies after verifying dataset redistribution terms.
 
-- Evaluated on a relatively small, balanced 300-image subset.
-- Dawn/dusk recall is materially lower than daytime and night.
-- The C++ classifier achieved 80.67% accuracy versus 81.33%
-  for the Python TensorRT inference pipeline; preprocessing
-  differences can change predictions.
-- CUDA-event engine-only benchmarks and C++ application timings
-  are not directly comparable.
-- CPU preprocessing remains the major end-to-end bottleneck.
-- No claim of deployment across other GPUs or operating systems.
-- This work demonstrates optimization and deployment of a
-  pretrained model, not a newly trained classifier.
+### Testing
 
-## Data and licensing
+```bash
+python -m compileall -q src
+python -m pytest -q tests  # pytest installation required
+```
 
-Road-scene data was sampled from
-`dronefreak/BDD100K-Period-Classification`.
-Observe the underlying BDD100K dataset terms before redistributing
-images or derived datasets.
+These CPU tests check artifact integrity and syntax; they are **not a substitute for the T4 GPU acceptance test**. See `tests/ACCEPTANCE.md`.
 
-Respect the licenses and redistributability requirements of the
-pretrained model, TensorRT components, CUDA, and OpenCV.
+### Limitations
 
-Do not publish downloaded dataset images, vendor headers,
-pretrained weights, or serialized model artifacts without
-reviewing the relevant terms.
-
-## Reproducibility
-
-Evaluation manifests and individual benchmark results are stored
-in the parent project's `data/` and `results/` folders.
-
-The complete calibrated checkpoint, ONNX graphs, and TensorRT
-engines are stored under `phase2_artifacts/`.
-
-To reproduce this specific engine build, use the saved
-quantized ONNX graph and the documented TensorRT 11.4 profile.
-Exact engine bytes and latency may change with hardware,
-driver, runtime version, and builder tactic selection.
+- Sampled 300 validation images: accuracy differences of one or two images are not significant evidence of accuracy improvements.
+- Important dawn/dusk recall weakness; do not use as a safety-critical driving system.
+- C++ preprocessing may change predictions compared with the Python CLIP processor.
+- 31% smaller engine is a storage improvement, **not** a 31% reduction in measured GPU peak memory.
+- TensorRT engines are not portable across arbitrary drivers/GPUs, and exact timing cannot be promised.
