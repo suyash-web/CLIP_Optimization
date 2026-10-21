@@ -1,0 +1,49 @@
+{
+  "gpu": "Tesla T4",
+  "tensorrt_version": "11.4.0.106",
+  "model": "openai/clip-vit-base-patch16",
+  "dataset": "dronefreak/BDD100K-Period-Classification",
+  "dataset_revision": "47b8bde4a2d808df9208a89cdd10f68b251bcdb4",
+  "files": {
+    "cpp_source": {
+      "path": "release/main.cpp",
+      "bytes": 13468,
+      "sha256": "b73b134a0f3793d38ff89210192467365838d4c0eadbeb6de54447a6242f9645"
+    },
+    "build_script": {
+      "path": "release/build.sh",
+      "bytes": 660,
+      "sha256": "aea7275bcf2597996c9c75e8410a8b4591fb899b504702194fa27789ffb88f04"
+    },
+    "text_embeddings": {
+      "path": "release/text_embeddings_fp32.bin",
+      "bytes": 6144,
+      "sha256": "34740f9aa3177be8d4c0fb3cd638421e465051a8c8eca6ce7ce1998a3777e203"
+    },
+    "mixed_engine": {
+      "path": "phase2_artifacts/clip_attention_fc1_int8_fp16_repaired.engine",
+      "bytes": 119975268,
+      "sha256": "2aca22bd4359a0038f5d1db4908f2ca9215ba5e380be3d22defeb547c77b238d"
+    },
+    "fp16_engine": {
+      "path": "phase2_artifacts/clip_baseline_fp16.engine",
+      "bytes": 174207860,
+      "sha256": "97fbe8497ff65c7153e66549ae37f7c427a8e22321a4b10291dc05998702b087"
+    },
+    "mixed_onnx": {
+      "path": "phase2_artifacts/clip_attention_fc1_int8_fp16_repaired.onnx",
+      "bytes": 288594556,
+      "sha256": "f773e31dbce18dc5bba085e4437dfc0c93a328411e1ba97c94b752830c153133"
+    },
+    "final_cpp_evaluation": {
+      "path": "results/cpp_optimized_final_evaluation.csv",
+      "bytes": 22496,
+      "sha256": "607d4a9f78526fe94dd81a082f490057d4a33e968843302b5ef3bda2d457cc3c"
+    },
+    "trt_comparison": {
+      "path": "results/final_trt_comparison.csv",
+      "bytes": 515,
+      "sha256": "9ec87bce7496d30fc5f9abe7c5b3a39d4c1d5f33205876b9003641c2a96de4da"
+    }
+  }
+}
